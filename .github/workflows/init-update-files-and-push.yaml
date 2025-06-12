@@ -1,0 +1,91 @@
+name: Init project, Update Files and Push to Develop
+
+on:
+  workflow_dispatch:
+    inputs:
+      customerName:
+        description: 'Nom du client'
+        required: true
+      projectName:
+        description: 'Nom du projet'
+        required: true
+      subdomain:
+        description: 'Sous domaine à utiliser'
+        required: true
+      categoryApp:
+        description: 'Categorie de l application'
+        required: false
+      longDescriptionApp:
+        description: 'Description longue de l application'
+        required: false
+      shortDescriptionApp:
+        description: 'Description courte de l application'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  update-files:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Authenticate with PAT
+        run: |
+          git remote set-url origin https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}
+          git remote -v
+
+      - name: Extract subdomain base
+        id: prepare
+        run: |
+          echo "SUBDOMAIN_BASE=$(echo '${{ inputs.subdomain }}' | sed 's/\..*//')" >> $GITHUB_OUTPUT
+
+      - name: Modify files
+        run: |
+          sed -i "s/customerName-projectName/${{ inputs.customerName }}-${{ inputs.projectName }}/g" k8s/**/*.yaml
+          sed -i "s/customerName-projectName/${{ inputs.customerName }}-${{ inputs.projectName }}/g" docker/**/Dockerfile
+          sed -i "s/customerName-projectName/${{ inputs.customerName }}-${{ inputs.projectName }}/g" docker-compose.yml
+          sed -i "s/customerName-projectName/${{ inputs.customerName }}-${{ inputs.projectName }}/g" .env.*
+          sed -i "s/customerName-projectName/${{ inputs.customerName }}-${{ inputs.projectName }}/g" .env
+          sed -i "s/customerName projectName/${{ inputs.customerName }} ${{ inputs.projectName }}/g" README.md
+          sed -i "s/customerName-projectName/${{ inputs.customerName }}-${{ inputs.projectName }}/g" README.md
+          sed -i "s/customername-projectname/${{ inputs.customerName }}-${{ inputs.projectName }}/g" docker-compose.yml
+          sed -i "s/example/${{ steps.prepare.outputs.SUBDOMAIN_BASE }}/g" k8s/**/*.yaml
+          sed -i "s/example/${{ steps.prepare.outputs.SUBDOMAIN_BASE }}/g" .env.*
+          sed -i "s/example/${{ steps.prepare.outputs.SUBDOMAIN_BASE }}/g" config/cors.ts
+          sed -i "s/example/${{ steps.prepare.outputs.SUBDOMAIN_BASE }}/g" README.md
+          
+      - name: Commit changes
+        run: |
+          git fetch origin
+          git add .
+          git commit -m "feat: update files with ${{ inputs.customerName }}-${{ inputs.projectName }}" || echo "No changes to commit"
+          git pull origin develop --rebase
+          git push origin develop
+
+
+      - name: Force staging to match develop
+        run: |
+          git fetch origin
+          git checkout staging
+          git reset --hard origin/develop
+          git push origin staging --force
+
+      - name: Trigger Deploy to Staging Workflow
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          event-type: deploy-to-init-project
+          client-payload: |
+            {
+              "customerName": "${{ inputs.customerName }}",
+              "projectName": "${{ inputs.projectName }}"
+            }
